@@ -7565,7 +7565,7 @@ task.spawn(C_1cd);
 local function C_1ff()
 local script = G2L["1ff"];
 	script.Parent.MouseButton1Up:Connect(function()
-		loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/iuniversal/dti-gui/refs/heads/main/scripts/infiniteyield"))()
 	end)
 end;
 task.spawn(C_1ff);
