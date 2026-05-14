@@ -1,0 +1,22 @@
+local pref = "https://raw.githubusercontent.com/iuniversal/dti-gui/refs/heads/main/scripts/"
+
+return {
+	getScript = function(path, scriptObj)
+		local src = game:HttpGet(pref .. path)
+
+		local fn, err = loadstring(src)
+		if not fn then
+			warn("Loadstring failed:", err)
+			return nil
+		end
+
+		return function()
+			local env = getfenv(fn)
+      env.script = scriptObj
+        for k, v in pairs(env) do print(i) end
+
+			setfenv(fn, env)
+			return fn()
+		end
+	end
+}
