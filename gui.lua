@@ -7008,7 +7008,7 @@ local script = G2L["df"];
 			if not ok or not registry then
 				randomBtn.Text = "Failed (no registry)"
 				task.wait(2)
-				randomBtn.Text = "\u2728 Random Outfit"
+				randomBtn.Text = "✨ Random Outfit"
 				randomBtn.Active = true
 				return
 			end
@@ -7061,15 +7061,20 @@ local script = G2L["df"];
 				return palette.c[math.random(#palette.c)]
 			end
 
-			-- Step 4: Group FREE items by Type (prevents stacking same slot)
+			-- Step 4: Group FREE non-gamepass items by Type (prevents stacking same slot)
+			local RF = RS:WaitForChild("RemoteFunctions")
 			local allItems = registry:GetAll()
 			local excluded = {MakeupPack=true, Makeup=true}
 			local byType = {}
 			for _, info in pairs(allItems) do
 				if typeof(info) == "table" and info.Name and info.Type then
 					if not excluded[info.Type] then
-						local price = (info.Metadata and info.Metadata.Price) or 0
-						if price == 0 then
+						local meta = info.Metadata or {}
+						local price = meta.Price or 0
+						local currency = meta.Currency or "Cash"
+						local hasGamepass = meta.Gamepass or meta.GamepassId or meta.GamepassRequired
+						-- Only include: free Cash items, no gamepass required, no toy code
+						if price == 0 and currency == "Cash" and not hasGamepass and not meta.ToyCode then
 							if not byType[info.Type] then
 								byType[info.Type] = {}
 							end
@@ -7079,10 +7084,14 @@ local script = G2L["df"];
 				end
 			end
 
-			-- Step 5: Equip ONE random item per type, apply palette colors to all slots
+			-- Step 5: Acquire + equip ONE random item per type, apply palette colors
 			for _, items in pairs(byType) do
 				if #items > 0 then
 					local pick = items[math.random(#items)]
+					-- Acquire item first (gives free items to player, like GETALL does)
+					pcall(function()
+						RF.BuyItem:InvokeServer(pick)
+					end)
 					RE.EquipItem:FireServer(pick)
 					task.wait(0.08)
 					-- Fire color for slots 1-4; server ignores non-existent slots silently
@@ -7114,9 +7123,9 @@ local script = G2L["df"];
 				RE.ColorAccessory:FireServer("Nails", "1", pickColor())
 			end)
 
-			randomBtn.Text = "\u2728 " .. palette.name .. " Outfit!"
+			randomBtn.Text = "✨ " .. palette.name .. " Outfit!"
 			task.wait(3)
-			randomBtn.Text = "\u2728 Random Outfit"
+			randomBtn.Text = "✨ Random Outfit"
 			randomBtn.Active = true
 		end)
 	end
