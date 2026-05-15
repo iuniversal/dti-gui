@@ -2766,7 +2766,7 @@ G2L["rnd1"]["BackgroundTransparency"] = 0.3;
 G2L["rnd1"]["Size"] = UDim2.new(1, 0, 0.12, 0);
 G2L["rnd1"]["LayoutOrder"] = 1;
 G2L["rnd1"]["BorderColor3"] = Color3.fromRGB(0, 0, 0);
-G2L["rnd1"]["Text"] = [[✨ Random Outfit]];
+G2L["rnd1"]["Text"] = [[Random Outfit]];
 G2L["rnd1"]["Name"] = [[RandomOutfit]];
 
 
@@ -7006,9 +7006,9 @@ local script = G2L["df"];
 				registry = require(RS.Content.Item.Registry)
 			end)
 			if not ok or not registry then
-				randomBtn.Text = "Failed (no registry)"
+				randomBtn.Text = "[!] Registry unavailable"
 				task.wait(2)
-				randomBtn.Text = "✨ Random Outfit"
+				randomBtn.Text = "Random Outfit"
 				randomBtn.Active = true
 				return
 			end
@@ -7123,9 +7123,9 @@ local script = G2L["df"];
 				RE.ColorAccessory:FireServer("Nails", "1", pickColor())
 			end)
 
-			randomBtn.Text = "✨ " .. palette.name .. " Outfit!"
+			randomBtn.Text = palette.name .. " Outfit done!"
 			task.wait(3)
-			randomBtn.Text = "✨ Random Outfit"
+			randomBtn.Text = "Random Outfit"
 			randomBtn.Active = true
 		end)
 	end
