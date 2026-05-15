@@ -7000,20 +7000,7 @@ local script = G2L["df"];
 			end
 			task.wait(0.3)
 
-			-- Step 2: Load registry
-			local registry
-			local ok = pcall(function()
-				registry = require(RS.Content.Item.Registry)
-			end)
-			if not ok or not registry then
-				randomBtn.Text = "[!] Registry unavailable"
-				task.wait(2)
-				randomBtn.Text = "Random Outfit"
-				randomBtn.Active = true
-				return
-			end
-
-			-- Step 3: Color palettes — pick one, apply coherently to all items
+			-- Step 2: Color palettes — pick one, apply coherently to all items
 			local palettes = {
 				{name="Pastel", c={
 					Color3.new(1,0.8,0.9), Color3.new(0.85,0.75,1),
@@ -7061,40 +7048,75 @@ local script = G2L["df"];
 				return palette.c[math.random(#palette.c)]
 			end
 
-			-- Step 4: Group FREE non-gamepass items by Type (prevents stacking same slot)
-			local RF = RS:WaitForChild("RemoteFunctions")
-			local allItems = registry:GetAll()
-			local excluded = {MakeupPack=true, Makeup=true}
+			-- Step 3: Load registry (for type lookup) + DataController (for owned items)
+			local registry
+			pcall(function()
+				registry = require(RS.Content.Item.Registry)
+			end)
+			local dataCont
+			pcall(function()
+				dataCont = require(RS.Client.Controllers.DataController)
+			end)
+			local replica
+			if dataCont then
+				pcall(function()
+					replica = dataCont:WaitForMyReplica()
+				end)
+			end
+
+			-- Step 4: Build byType from OWNED items only (replica.Data.Inventory)
+			-- This guarantees zero "no access" errors
+			local excluded = {MakeupPack=true, Makeup=true, AnimPack=true, WalkPack=true, PosePack=true, IdlePack=true, Effect=true, EffectPack=true}
 			local byType = {}
-			for _, info in pairs(allItems) do
-				if typeof(info) == "table" and info.Name and info.Type then
-					if not excluded[info.Type] then
-						local meta = info.Metadata or {}
-						local price = meta.Price or 0
-						local currency = meta.Currency or "Cash"
-						local hasGamepass = meta.Gamepass or meta.GamepassId or meta.GamepassRequired
-						-- Only include: free Cash items, no gamepass required, no toy code
-						if price == 0 and currency == "Cash" and not hasGamepass and not meta.ToyCode then
-							if not byType[info.Type] then
-								byType[info.Type] = {}
+
+			if replica and replica.Data and replica.Data.Inventory then
+				-- Best path: use player's actual inventory
+				for _, item in pairs(replica.Data.Inventory) do
+					if item.Name then
+						local itemType = nil
+						if registry then
+							local info = registry:Get(item.Name)
+							if info and info.Type then
+								itemType = info.Type
 							end
-							table.insert(byType[info.Type], info.Name)
+						end
+						itemType = itemType or "Unknown"
+						if not excluded[itemType] then
+							if not byType[itemType] then
+								byType[itemType] = {}
+							end
+							table.insert(byType[itemType], item.Name)
 						end
 					end
 				end
+			elseif registry then
+				-- Fallback: registry with strict filtering
+				for _, info in pairs(registry:GetAll()) do
+					if typeof(info) == "table" and info.Name and info.Type then
+						if not excluded[info.Type] then
+							local meta = info.Metadata or {}
+							if (meta.Price or 0) == 0 and (meta.Currency or "Cash") == "Cash"
+								and not meta.Gamepass and not meta.GamepassId and not meta.ToyCode then
+								if not byType[info.Type] then byType[info.Type] = {} end
+								table.insert(byType[info.Type], info.Name)
+							end
+						end
+					end
+				end
+			else
+				randomBtn.Text = "[!] No data source"
+				task.wait(2)
+				randomBtn.Text = "Random Outfit"
+				randomBtn.Active = true
+				return
 			end
 
-			-- Step 5: Acquire + equip ONE random item per type, apply palette colors
+			-- Step 5: Equip ONE random item per type + apply palette colors
 			for _, items in pairs(byType) do
 				if #items > 0 then
 					local pick = items[math.random(#items)]
-					-- Acquire item first (gives free items to player, like GETALL does)
-					pcall(function()
-						RF.BuyItem:InvokeServer(pick)
-					end)
 					RE.EquipItem:FireServer(pick)
 					task.wait(0.08)
-					-- Fire color for slots 1-4; server ignores non-existent slots silently
 					for slot = 1, 4 do
 						RE.ColorAccessory:FireServer(pick, tostring(slot), pickColor())
 					end
