@@ -7048,79 +7048,158 @@ local script = G2L["df"];
 				return palette.c[math.random(#palette.c)]
 			end
 
-			-- Step 3: Load registry (for type lookup) + DataController (for owned items)
+			-- Step 3: Load registry + player replica (for owned items)
 			local registry
-			pcall(function()
-				registry = require(RS.Content.Item.Registry)
-			end)
-			local dataCont
-			pcall(function()
-				dataCont = require(RS.Client.Controllers.DataController)
-			end)
+			pcall(function() registry = require(RS.Content.Item.Registry) end)
 			local replica
-			if dataCont then
-				pcall(function()
-					replica = dataCont:WaitForMyReplica()
-				end)
+			do
+				local dc
+				pcall(function() dc = require(RS.Client.Controllers.DataController) end)
+				if dc then pcall(function() replica = dc:WaitForMyReplica() end) end
 			end
 
-			-- Step 4: Build byType from OWNED items only (replica.Data.Inventory)
-			-- This guarantees zero "no access" errors
-			local excluded = {MakeupPack=true, Makeup=true, AnimPack=true, WalkPack=true, PosePack=true, IdlePack=true, Effect=true, EffectPack=true}
-			local byType = {}
+			-- Types that are never equippable as clothing
+			local skipType = {
+				Makeup=true, AnimPack=true, WalkPack=true, PosePack=true,
+				IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true,
+			}
 
+			-- Parse one inventory entry into byType map
+			local byType = {}
+			local function regItem(name, hintType)
+				if not name or name == "" then return end
+				local t = hintType
+				if not t and registry then
+					pcall(function()
+						local inf = registry:Get(name)
+						if inf and inf.Type then t = inf.Type end
+					end)
+				end
+				t = t or "Unknown"
+				if skipType[t] then return end
+				if not byType[t] then byType[t] = {} end
+				table.insert(byType[t], name)
+			end
+
+			-- Build byType: primary from owned inventory, fallback from registry
 			if replica and replica.Data and replica.Data.Inventory then
-				-- Best path: use player's actual inventory
-				for _, item in pairs(replica.Data.Inventory) do
-					if item.Name then
-						local itemType = nil
-						if registry then
-							local info = registry:Get(item.Name)
-							if info and info.Type then
-								itemType = info.Type
-							end
-						end
-						itemType = itemType or "Unknown"
-						if not excluded[itemType] then
-							if not byType[itemType] then
-								byType[itemType] = {}
-							end
-							table.insert(byType[itemType], item.Name)
-						end
+				for k, v in pairs(replica.Data.Inventory) do
+					if type(v) == "table" then
+						regItem(v.Name or v.name or (type(k)=="string" and k), v.Type or v.type)
+					elseif type(v) == "string" then
+						regItem(v, nil)
+					elseif type(k) == "string" then
+						regItem(k, nil)
 					end
 				end
 			elseif registry then
-				-- Fallback: registry with strict filtering
-				for _, info in pairs(registry:GetAll()) do
-					if typeof(info) == "table" and info.Name and info.Type then
-						if not excluded[info.Type] then
-							local meta = info.Metadata or {}
-							if (meta.Price or 0) == 0 and (meta.Currency or "Cash") == "Cash"
-								and not meta.Gamepass and not meta.GamepassId and not meta.ToyCode then
-								if not byType[info.Type] then byType[info.Type] = {} end
-								table.insert(byType[info.Type], info.Name)
-							end
+				for _, inf in pairs(registry:GetAll()) do
+					if typeof(inf)=="table" and inf.Name and inf.Type then
+						local m = inf.Metadata or {}
+						if (m.Price or 0)==0 and (m.Currency or "Cash")=="Cash"
+							and not m.Gamepass and not m.GamepassId and not m.ToyCode then
+							regItem(inf.Name, inf.Type)
 						end
 					end
 				end
 			else
-				randomBtn.Text = "[!] No data source"
+				randomBtn.Text = "[!] No item data"
 				task.wait(2)
 				randomBtn.Text = "Random Outfit"
 				randomBtn.Active = true
 				return
 			end
 
-			-- Step 5: Equip ONE random item per type + apply palette colors
-			for _, items in pairs(byType) do
-				if #items > 0 then
-					local pick = items[math.random(#items)]
-					RE.EquipItem:FireServer(pick)
-					task.wait(0.08)
-					for slot = 1, 4 do
-						RE.ColorAccessory:FireServer(pick, tostring(slot), pickColor())
-					end
-					task.wait(0.04)
+			-- Equip helper: fire equip + palette color on all 4 slots
+			local function doEquip(name)
+				RE.EquipItem:FireServer(name)
+				task.wait(0.08)
+				for s = 1, 4 do RE.ColorAccessory:FireServer(name, tostring(s), pickColor()) end
+				task.wait(0.05)
+			end
+
+			-- Pick one random item from the first type variant that has items
+			local function pickType(variants)
+				for _, t in ipairs(variants) do
+					local pool = byType[t]
+					if pool and #pool > 0 then return pool[math.random(#pool)] end
+				end
+				return nil
+			end
+
+			-- Track which types we've explicitly handled (for catch-all pass)
+			local handledTypes = {}
+			local function markHandled(variants)
+				for _, t in ipairs(variants) do handledTypes[t] = true end
+			end
+
+			-- ── PRIORITY 1: Hair ────────────────────────────────────────────
+			local HAIR = {"Hair","Hairstyle","HairStyle","Hairs"}
+			markHandled(HAIR)
+			local hair = pickType(HAIR)
+			if hair then doEquip(hair) end
+
+			-- ── PRIORITY 2: Body (Top+Bottom or Dress) ──────────────────────
+			local TOP    = {"Top","Shirt","Blouse","Jacket","Sweater","Hoodie","Bodysuit","Corset","Crop Top","Tube Top","Tank Top","Cardigan"}
+			local BOTTOM = {"Bottom","Pants","Skirt","Shorts","Jeans","Leggings","Skirt","Mini Skirt","Trousers"}
+			local DRESS  = {"Dress","Gown","Jumpsuit","Romper","Overall","Co-Ord","Coord"}
+			markHandled(TOP) markHandled(BOTTOM) markHandled(DRESS)
+
+			local top    = pickType(TOP)
+			local bottom = pickType(BOTTOM)
+			local dress  = pickType(DRESS)
+
+			if dress and (not top or not bottom or math.random(3)==1) then
+				doEquip(dress)
+			else
+				if top    then doEquip(top)    end
+				if bottom then doEquip(bottom) end
+				if not top and not bottom and dress then doEquip(dress) end
+			end
+
+			-- ── PRIORITY 3: Shoes ────────────────────────────────────────────
+			local SHOES = {"Shoes","Footwear","Boots","Heels","Sneakers","Sandals","Flats","Platforms","Wedges"}
+			markHandled(SHOES)
+			local shoes = pickType(SHOES)
+			if shoes then doEquip(shoes) end
+
+			-- ── PRIORITY 4: Accessories (1–3 random) ────────────────────────
+			local ACC = {"Accessory","Bag","Necklace","Earrings","Earring","Jewelry","Ring","Bracelet","Hat","Cap","Glasses","Sunglasses","Belt","Gloves","Scarf","Socks","Tights","Stockings","Choker","Watch","Handbag","Mini Bag","Purse"}
+			markHandled(ACC)
+			local accPool = {}
+			for _, t in ipairs(ACC) do
+				if byType[t] then for _, it in ipairs(byType[t]) do table.insert(accPool, it) end end
+			end
+			for i = #accPool, 2, -1 do
+				local j = math.random(i); accPool[i],accPool[j] = accPool[j],accPool[i]
+			end
+			for i = 1, math.min(math.random(1,3), #accPool) do doEquip(accPool[i]) end
+
+			-- ── PRIORITY 5: MakeupPack (equippable face preset) ──────────────
+			local MKP = {"MakeupPack"}
+			markHandled(MKP)
+			local mkp = pickType(MKP)
+			if mkp then RE.EquipItem:FireServer(mkp); task.wait(0.1) end
+
+			-- ── PRIORITY 6: Classic face (random index) ──────────────────────
+			pcall(function()
+				local classicM = require(RS:WaitForChild("Content"):WaitForChild("ClassicMakeup"))
+				local total = #classicM
+				if total and total > 1 then
+					local idx = math.random(1, total - 1)
+					local mode = (math.random(2)==1) and "Light" or "Dark"
+					RE:WaitForChild("ClassicMakeup"):FireServer(idx, mode)
+				end
+			end)
+			task.wait(0.1)
+
+			-- ── CATCH-ALL: equip one item from any type not yet handled ───────
+			-- (covers new or unknown DTI clothing types)
+			local alwaysSkip = {Unknown=true, Makeup=true, MakeupPack=true, AnimPack=true,
+				WalkPack=true, PosePack=true, IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true}
+			for typeName, items in pairs(byType) do
+				if not handledTypes[typeName] and not alwaysSkip[typeName] and #items > 0 then
+					doEquip(items[math.random(#items)])
 				end
 			end
 
