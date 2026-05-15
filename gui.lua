@@ -6982,61 +6982,141 @@ local script = G2L["df"];
 	local randomBtn = script.Parent:FindFirstChild("RandomOutfit")
 	if randomBtn then
 		randomBtn.MouseButton1Up:Connect(function()
-			randomBtn.Text = "Loading..."
+			randomBtn.Text = "Generating..."
 			randomBtn.Active = false
 
-			-- Unequip all current items
+			local RS = game:GetService("ReplicatedStorage")
+			local RE = RS:WaitForChild("RemoteEvents")
+
+			-- Step 1: Unequip everything first
 			local char = game.Players.LocalPlayer.Character
 			if char then
 				local equipped = char:FindFirstChild("EquippedAccessories")
 				if equipped then
 					for _, v in equipped:GetChildren() do
-						game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("UnequipItem"):FireServer(v.Name)
+						RE.UnequipItem:FireServer(v.Name)
 					end
 				end
 			end
+			task.wait(0.3)
 
-			-- Get all items from game registry
+			-- Step 2: Load registry
 			local registry
 			local ok = pcall(function()
-				registry = require(game.ReplicatedStorage.Content.Item.Registry)
+				registry = require(RS.Content.Item.Registry)
 			end)
+			if not ok or not registry then
+				randomBtn.Text = "Failed (no registry)"
+				task.wait(2)
+				randomBtn.Text = "\u2728 Random Outfit"
+				randomBtn.Active = true
+				return
+			end
 
-			if ok and registry then
-				local allItems = registry:GetAll()
+			-- Step 3: Color palettes — pick one, apply coherently to all items
+			local palettes = {
+				{name="Pastel", c={
+					Color3.new(1,0.8,0.9), Color3.new(0.85,0.75,1),
+					Color3.new(0.75,0.9,1), Color3.new(1,1,0.85),
+					Color3.new(1,0.88,0.95), Color3.new(0.88,1,0.92),
+				}},
+				{name="Dark", c={
+					Color3.new(0.1,0.07,0.1), Color3.new(0.22,0.14,0.2),
+					Color3.new(0.38,0.28,0.35), Color3.new(0.55,0.42,0.5),
+					Color3.new(0.08,0.08,0.1), Color3.new(0.65,0.5,0.6),
+				}},
+				{name="Y2K", c={
+					Color3.new(1,0.15,0.6), Color3.new(0.35,0,1),
+					Color3.new(0,0.8,1), Color3.new(1,0.9,0),
+					Color3.new(0,1,0.6), Color3.new(1,0.4,0.8),
+				}},
+				{name="Earth", c={
+					Color3.new(0.6,0.4,0.25), Color3.new(0.75,0.58,0.4),
+					Color3.new(0.82,0.7,0.55), Color3.new(0.35,0.28,0.18),
+					Color3.new(0.5,0.35,0.2), Color3.new(0.68,0.52,0.35),
+				}},
+				{name="Mono", c={
+					Color3.new(0.05,0.05,0.05), Color3.new(0.25,0.25,0.25),
+					Color3.new(0.5,0.5,0.5), Color3.new(0.75,0.75,0.75),
+					Color3.new(0.9,0.9,0.9), Color3.new(1,1,1),
+				}},
+				{name="Pink", c={
+					Color3.new(1,0.5,0.7), Color3.new(0.9,0.3,0.6),
+					Color3.new(1,0.75,0.85), Color3.new(0.7,0.2,0.45),
+					Color3.new(1,0.65,0.8), Color3.new(0.55,0.1,0.35),
+				}},
+				{name="Ocean", c={
+					Color3.new(0,0.5,0.8), Color3.new(0.1,0.7,0.9),
+					Color3.new(0,0.3,0.6), Color3.new(0.5,0.85,1),
+					Color3.new(0,0.6,0.75), Color3.new(0.2,0.4,0.75),
+				}},
+				{name="Autumn", c={
+					Color3.new(0.8,0.3,0.1), Color3.new(0.9,0.55,0.1),
+					Color3.new(1,0.75,0.25), Color3.new(0.55,0.15,0.08),
+					Color3.new(0.7,0.4,0.1), Color3.new(0.85,0.62,0.2),
+				}},
+			}
+			local palette = palettes[math.random(#palettes)]
+			local function pickColor()
+				return palette.c[math.random(#palette.c)]
+			end
 
-				-- Group FREE items by Type (one item per slot = no stacking)
-				local excludedTypes = {MakeupPack=true, Makeup=true}
-				local byType = {}
-				for _, info in pairs(allItems) do
-					if typeof(info) == "table" and info.Name and info.Type then
-						if not excludedTypes[info.Type] then
-							local price = (info.Metadata and info.Metadata.Price) or 0
-							if price == 0 then
-								if not byType[info.Type] then
-									byType[info.Type] = {}
-								end
-								table.insert(byType[info.Type], info.Name)
+			-- Step 4: Group FREE items by Type (prevents stacking same slot)
+			local allItems = registry:GetAll()
+			local excluded = {MakeupPack=true, Makeup=true}
+			local byType = {}
+			for _, info in pairs(allItems) do
+				if typeof(info) == "table" and info.Name and info.Type then
+					if not excluded[info.Type] then
+						local price = (info.Metadata and info.Metadata.Price) or 0
+						if price == 0 then
+							if not byType[info.Type] then
+								byType[info.Type] = {}
 							end
+							table.insert(byType[info.Type], info.Name)
 						end
 					end
 				end
-
-				-- Pick exactly ONE random item per type and equip it
-				for _, items in pairs(byType) do
-					if #items > 0 then
-						local pick = items[math.random(#items)]
-						game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("EquipItem"):FireServer(pick)
-						task.wait(0.05)
-					end
-				end
-				randomBtn.Text = "✨ Random Outfit"
-			else
-				randomBtn.Text = "Failed (registry unavailable)"
-				task.wait(2)
-				randomBtn.Text = "✨ Random Outfit"
 			end
 
+			-- Step 5: Equip ONE random item per type, apply palette colors to all slots
+			for _, items in pairs(byType) do
+				if #items > 0 then
+					local pick = items[math.random(#items)]
+					RE.EquipItem:FireServer(pick)
+					task.wait(0.08)
+					-- Fire color for slots 1-4; server ignores non-existent slots silently
+					for slot = 1, 4 do
+						RE.ColorAccessory:FireServer(pick, tostring(slot), pickColor())
+					end
+					task.wait(0.04)
+				end
+			end
+
+			-- Step 6: Random natural skin tone
+			local skinTones = {
+				Color3.new(1,    0.92, 0.84),
+				Color3.new(0.97, 0.82, 0.70),
+				Color3.new(0.88, 0.70, 0.53),
+				Color3.new(0.77, 0.57, 0.40),
+				Color3.new(0.62, 0.43, 0.28),
+				Color3.new(0.45, 0.30, 0.18),
+				Color3.new(0.30, 0.20, 0.12),
+			}
+			pcall(function()
+				RE.ChangeSkintone:FireServer(skinTones[math.random(#skinTones)])
+			end)
+
+			-- Step 7: Random nail shape + palette color
+			local nailStyles = {"Box 1","Box 2","Round 1","Round 2","Almond 1","Almond 2","Stiletto 1"}
+			pcall(function()
+				RE.ChangeNailStyle:FireServer(nailStyles[math.random(#nailStyles)])
+				RE.ColorAccessory:FireServer("Nails", "1", pickColor())
+			end)
+
+			randomBtn.Text = "\u2728 " .. palette.name .. " Outfit!"
+			task.wait(3)
+			randomBtn.Text = "\u2728 Random Outfit"
 			randomBtn.Active = true
 		end)
 	end
