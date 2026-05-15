@@ -7004,25 +7004,31 @@ local script = G2L["df"];
 
 			if ok and registry then
 				local allItems = registry:GetAll()
-				local clothingItems = {}
+
+				-- Group FREE items by Type (one item per slot = no stacking)
+				local excludedTypes = {MakeupPack=true, Makeup=true}
+				local byType = {}
 				for _, info in pairs(allItems) do
 					if typeof(info) == "table" and info.Name and info.Type then
-						if info.Type ~= "MakeupPack" and info.Type ~= "Makeup" then
-							table.insert(clothingItems, info.Name)
+						if not excludedTypes[info.Type] then
+							local price = (info.Metadata and info.Metadata.Price) or 0
+							if price == 0 then
+								if not byType[info.Type] then
+									byType[info.Type] = {}
+								end
+								table.insert(byType[info.Type], info.Name)
+							end
 						end
 					end
 				end
 
-				-- Fisher-Yates shuffle, pick random subset
-				for i = #clothingItems, 2, -1 do
-					local j = math.random(i)
-					clothingItems[i], clothingItems[j] = clothingItems[j], clothingItems[i]
-				end
-
-				local count = math.min(#clothingItems, math.random(6, 12))
-				for i = 1, count do
-					game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("EquipItem"):FireServer(clothingItems[i])
-					task.wait(0.05)
+				-- Pick exactly ONE random item per type and equip it
+				for _, items in pairs(byType) do
+					if #items > 0 then
+						local pick = items[math.random(#items)]
+						game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("EquipItem"):FireServer(pick)
+						task.wait(0.05)
+					end
 				end
 				randomBtn.Text = "✨ Random Outfit"
 			else
