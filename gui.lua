@@ -2753,6 +2753,34 @@ G2L["122"]["Thickness"] = 1.5;
 G2L["122"]["Color"] = Color3.fromRGB(255, 135, 206);
 
 
+-- StarterGui.DTIGUI.Main.Container.Categories.FitPresets.RandomOutfit
+G2L["rnd1"] = Instance.new("TextButton", G2L["de"]);
+G2L["rnd1"]["TextWrapped"] = true;
+G2L["rnd1"]["BorderSizePixel"] = 0;
+G2L["rnd1"]["TextSize"] = 14;
+G2L["rnd1"]["TextScaled"] = true;
+G2L["rnd1"]["TextColor3"] = Color3.fromRGB(255, 255, 255);
+G2L["rnd1"]["BackgroundColor3"] = Color3.fromRGB(160, 80, 220);
+G2L["rnd1"]["FontFace"] = Font.new([[rbxasset://fonts/families/FredokaOne.json]], Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+G2L["rnd1"]["BackgroundTransparency"] = 0.3;
+G2L["rnd1"]["Size"] = UDim2.new(1, 0, 0.12, 0);
+G2L["rnd1"]["LayoutOrder"] = 1;
+G2L["rnd1"]["BorderColor3"] = Color3.fromRGB(0, 0, 0);
+G2L["rnd1"]["Text"] = [[✨ Random Outfit]];
+G2L["rnd1"]["Name"] = [[RandomOutfit]];
+
+
+-- StarterGui.DTIGUI.Main.Container.Categories.FitPresets.RandomOutfit.UICorner
+G2L["rnd2"] = Instance.new("UICorner", G2L["rnd1"]);
+G2L["rnd2"]["CornerRadius"] = UDim.new(0, 5);
+
+
+-- StarterGui.DTIGUI.Main.Container.Categories.FitPresets.RandomOutfit.UIStroke
+G2L["rnd3"] = Instance.new("UIStroke", G2L["rnd1"]);
+G2L["rnd3"]["Thickness"] = 1.5;
+G2L["rnd3"]["Color"] = Color3.fromRGB(200, 120, 255);
+
+
 -- StarterGui.DTIGUI.Main.Container.Categories.FreeStuff
 G2L["123"] = Instance.new("ScrollingFrame", G2L["37"]);
 G2L["123"]["Visible"] = false;
@@ -6948,6 +6976,63 @@ local script = G2L["df"];
 				end)
 			end
 		end
+	end
+
+	-- Random Outfit button
+	local randomBtn = script.Parent:FindFirstChild("RandomOutfit")
+	if randomBtn then
+		randomBtn.MouseButton1Up:Connect(function()
+			randomBtn.Text = "Loading..."
+			randomBtn.Active = false
+
+			-- Unequip all current items
+			local char = game.Players.LocalPlayer.Character
+			if char then
+				local equipped = char:FindFirstChild("EquippedAccessories")
+				if equipped then
+					for _, v in equipped:GetChildren() do
+						game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("UnequipItem"):FireServer(v.Name)
+					end
+				end
+			end
+
+			-- Get all items from game registry
+			local registry
+			local ok = pcall(function()
+				registry = require(game.ReplicatedStorage.Content.Item.Registry)
+			end)
+
+			if ok and registry then
+				local allItems = registry:GetAll()
+				local clothingItems = {}
+				for _, info in pairs(allItems) do
+					if typeof(info) == "table" and info.Name and info.Type then
+						if info.Type ~= "MakeupPack" and info.Type ~= "Makeup" then
+							table.insert(clothingItems, info.Name)
+						end
+					end
+				end
+
+				-- Fisher-Yates shuffle, pick random subset
+				for i = #clothingItems, 2, -1 do
+					local j = math.random(i)
+					clothingItems[i], clothingItems[j] = clothingItems[j], clothingItems[i]
+				end
+
+				local count = math.min(#clothingItems, math.random(6, 12))
+				for i = 1, count do
+					game:GetService("ReplicatedStorage"):WaitForChild("RemoteEvents"):WaitForChild("EquipItem"):FireServer(clothingItems[i])
+					task.wait(0.05)
+				end
+				randomBtn.Text = "✨ Random Outfit"
+			else
+				randomBtn.Text = "Failed (registry unavailable)"
+				task.wait(2)
+				randomBtn.Text = "✨ Random Outfit"
+			end
+
+			randomBtn.Active = true
+		end)
 	end
 end;
 task.spawn(C_df);
