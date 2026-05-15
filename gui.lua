@@ -7111,95 +7111,122 @@ local script = G2L["df"];
 			end
 
 			-- Equip helper: fire equip + palette color on all 4 slots
+			local usedItems = {}  -- prevent same item being picked for two slots
 			local function doEquip(name)
+				if usedItems[name] then return end
+				usedItems[name] = true
 				RE.EquipItem:FireServer(name)
 				task.wait(0.08)
 				for s = 1, 4 do RE.ColorAccessory:FireServer(name, tostring(s), pickColor()) end
 				task.wait(0.05)
 			end
 
-			-- Pick one random item from the first type variant that has items
-			local function pickType(variants)
-				for _, t in ipairs(variants) do
-					local pool = byType[t]
-					if pool and #pool > 0 then return pool[math.random(#pool)] end
+			-- Build a flat pool of all items whose type name contains ANY of the keywords (fuzzy, case-insensitive)
+			local function fuzzyPool(keywords)
+				local pool = {}
+				for typeName, items in pairs(byType) do
+					local lower = typeName:lower()
+					for _, kw in ipairs(keywords) do
+						if lower:find(kw, 1, true) then
+							for _, it in ipairs(items) do
+								if not usedItems[it] then table.insert(pool, it) end
+							end
+							break
+						end
+					end
 				end
-				return nil
+				return pool
 			end
 
-			-- Track which types we've explicitly handled (for catch-all pass)
-			local handledTypes = {}
-			local function markHandled(variants)
-				for _, t in ipairs(variants) do handledTypes[t] = true end
+			local function pickPool(pool)
+				if #pool == 0 then return nil end
+				return pool[math.random(#pool)]
 			end
 
-			-- ── PRIORITY 1: Hair ────────────────────────────────────────────
-			local HAIR = {"Hair","Hairstyle","HairStyle","Hairs"}
-			markHandled(HAIR)
-			local hair = pickType(HAIR)
+			-- Mark type as handled (for catch-all pass)
+			local handledKW = {}
+			local function markKW(keywords)
+				for _, kw in ipairs(keywords) do handledKW[kw] = true end
+			end
+
+			-- ── PRIORITY 1: Hair ─────────────────────────────────────────────
+			local KW_HAIR  = {"hair"}
+			markKW(KW_HAIR)
+			local hair = pickPool(fuzzyPool(KW_HAIR))
 			if hair then doEquip(hair) end
 
-			-- ── PRIORITY 2: Body (Top+Bottom or Dress) ──────────────────────
-			local TOP    = {"Top","Shirt","Blouse","Jacket","Sweater","Hoodie","Bodysuit","Corset","Crop Top","Tube Top","Tank Top","Cardigan"}
-			local BOTTOM = {"Bottom","Pants","Skirt","Shorts","Jeans","Leggings","Skirt","Mini Skirt","Trousers"}
-			local DRESS  = {"Dress","Gown","Jumpsuit","Romper","Overall","Co-Ord","Coord"}
-			markHandled(TOP) markHandled(BOTTOM) markHandled(DRESS)
+			-- ── PRIORITY 2: Body ─────────────────────────────────────────────
+			local KW_TOP    = {"top","shirt","blouse","jacket","sweater","hoodie","bodysuit","corset","cardigan","tank","tube","crop","upper"}
+			local KW_BOTTOM = {"bottom","pant","skirt","short","jean","legging","trouser","lower"}
+			local KW_DRESS  = {"dress","gown","jumpsuit","romper","overall","coord","set"}
+			markKW(KW_TOP) markKW(KW_BOTTOM) markKW(KW_DRESS)
 
-			local top    = pickType(TOP)
-			local bottom = pickType(BOTTOM)
-			local dress  = pickType(DRESS)
+			local top    = pickPool(fuzzyPool(KW_TOP))
+			local bottom = pickPool(fuzzyPool(KW_BOTTOM))
+			local dress  = pickPool(fuzzyPool(KW_DRESS))
 
-			if dress and (not top or not bottom or math.random(3)==1) then
+			-- Prefer Top+Bottom combo; use Dress if one is missing or randomly (1-in-3)
+			if dress and (not top or not bottom or math.random(3) == 1) then
 				doEquip(dress)
+				-- Still equip whichever of top/bottom exists separately
+				if top    and not usedItems[top]    then doEquip(top)    end
+				if bottom and not usedItems[bottom] then doEquip(bottom) end
 			else
 				if top    then doEquip(top)    end
 				if bottom then doEquip(bottom) end
 				if not top and not bottom and dress then doEquip(dress) end
 			end
 
-			-- ── PRIORITY 3: Shoes ────────────────────────────────────────────
-			local SHOES = {"Shoes","Footwear","Boots","Heels","Sneakers","Sandals","Flats","Platforms","Wedges"}
-			markHandled(SHOES)
-			local shoes = pickType(SHOES)
+			-- ── PRIORITY 3: Shoes ─────────────────────────────────────────────
+			local KW_SHOES = {"shoe","boot","heel","sneaker","sandal","flat","platform","wedge","footwear"}
+			markKW(KW_SHOES)
+			local shoes = pickPool(fuzzyPool(KW_SHOES))
 			if shoes then doEquip(shoes) end
 
-			-- ── PRIORITY 4: Accessories (1–3 random) ────────────────────────
-			local ACC = {"Accessory","Bag","Necklace","Earrings","Earring","Jewelry","Ring","Bracelet","Hat","Cap","Glasses","Sunglasses","Belt","Gloves","Scarf","Socks","Tights","Stockings","Choker","Watch","Handbag","Mini Bag","Purse"}
-			markHandled(ACC)
-			local accPool = {}
-			for _, t in ipairs(ACC) do
-				if byType[t] then for _, it in ipairs(byType[t]) do table.insert(accPool, it) end end
-			end
+			-- ── PRIORITY 4: Accessories (1–3 random) ─────────────────────────
+			local KW_ACC = {"accessory","bag","necklace","earring","jewelry","ring","bracelet","hat","cap","glass","sunglass","belt","glove","scarf","sock","tight","stocking","choker","watch","purse","headband","clip","pin","beret"}
+			markKW(KW_ACC)
+			local accPool = fuzzyPool(KW_ACC)
 			for i = #accPool, 2, -1 do
-				local j = math.random(i); accPool[i],accPool[j] = accPool[j],accPool[i]
+				local j = math.random(i); accPool[i], accPool[j] = accPool[j], accPool[i]
 			end
-			for i = 1, math.min(math.random(1,3), #accPool) do doEquip(accPool[i]) end
+			for i = 1, math.min(math.random(1, 3), #accPool) do doEquip(accPool[i]) end
 
-			-- ── PRIORITY 5: MakeupPack (equippable face preset) ──────────────
-			local MKP = {"MakeupPack"}
-			markHandled(MKP)
-			local mkp = pickType(MKP)
+			-- ── PRIORITY 5: MakeupPack ────────────────────────────────────────
+			local KW_MKP = {"makeup","makeuppack"}
+			markKW(KW_MKP)
+			local mkp = pickPool(fuzzyPool(KW_MKP))
 			if mkp then RE.EquipItem:FireServer(mkp); task.wait(0.1) end
 
-			-- ── PRIORITY 6: Classic face (random index) ──────────────────────
+			-- ── PRIORITY 6: Classic face (random index) ───────────────────────
 			pcall(function()
 				local classicM = require(RS:WaitForChild("Content"):WaitForChild("ClassicMakeup"))
 				local total = #classicM
 				if total and total > 1 then
 					local idx = math.random(1, total - 1)
-					local mode = (math.random(2)==1) and "Light" or "Dark"
+					local mode = (math.random(2) == 1) and "Light" or "Dark"
 					RE:WaitForChild("ClassicMakeup"):FireServer(idx, mode)
 				end
 			end)
 			task.wait(0.1)
 
-			-- ── CATCH-ALL: equip one item from any type not yet handled ───────
-			-- (covers new or unknown DTI clothing types)
-			local alwaysSkip = {Unknown=true, Makeup=true, MakeupPack=true, AnimPack=true,
-				WalkPack=true, PosePack=true, IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true}
+			-- ── CATCH-ALL: equip one item from every remaining type ────────────
+			-- Skips animation/effect types; picks from anything truly unhandled
+			local neverEquip = {Makeup=true,AnimPack=true,WalkPack=true,PosePack=true,
+				IdlePack=true,Effect=true,EffectPack=true,ConsumableEffect=true}
 			for typeName, items in pairs(byType) do
-				if not handledTypes[typeName] and not alwaysSkip[typeName] and #items > 0 then
-					doEquip(items[math.random(#items)])
+				if neverEquip[typeName] then continue end
+				local lower = typeName:lower()
+				local handled = false
+				for kw in pairs(handledKW) do
+					if lower:find(kw, 1, true) then handled = true; break end
+				end
+				if not handled and #items > 0 then
+					local remaining = {}
+					for _, it in ipairs(items) do
+						if not usedItems[it] then table.insert(remaining, it) end
+					end
+					if #remaining > 0 then doEquip(remaining[math.random(#remaining)]) end
 				end
 			end
 
