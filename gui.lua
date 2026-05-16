@@ -3427,6 +3427,27 @@ G2L["165"]["Thickness"] = 1.5;
 G2L["165"]["Color"] = Color3.fromRGB(255, 135, 206);
 
 
+-- StarterGui.DTIGUI.Main.Container.Categories.FreeStuff.ALLPASSES
+G2L["ALLPASSES_BTN"] = Instance.new("TextButton", G2L["123"]);
+G2L["ALLPASSES_BTN"]["TextWrapped"] = true;
+G2L["ALLPASSES_BTN"]["BorderSizePixel"] = 0;
+G2L["ALLPASSES_BTN"]["TextSize"] = 14;
+G2L["ALLPASSES_BTN"]["TextScaled"] = true;
+G2L["ALLPASSES_BTN"]["TextColor3"] = Color3.fromRGB(255, 255, 255);
+G2L["ALLPASSES_BTN"]["BackgroundColor3"] = Color3.fromRGB(255, 255, 255);
+G2L["ALLPASSES_BTN"]["FontFace"] = Font.new([[rbxasset://fonts/families/FredokaOne.json]], Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+G2L["ALLPASSES_BTN"]["BackgroundTransparency"] = 0.5;
+G2L["ALLPASSES_BTN"]["Size"] = UDim2.new(1, 0, 0.12, 0);
+G2L["ALLPASSES_BTN"]["LayoutOrder"] = -1;
+G2L["ALLPASSES_BTN"]["BorderColor3"] = Color3.fromRGB(0, 0, 0);
+G2L["ALLPASSES_BTN"]["Text"] = [[Unlock All Gamepasses]];
+G2L["ALLPASSES_BTN"]["Name"] = [[ALLPASSES]];
+do
+	local _c = Instance.new("UICorner", G2L["ALLPASSES_BTN"]); _c.CornerRadius = UDim.new(0, 5)
+	local _s = Instance.new("UIStroke", G2L["ALLPASSES_BTN"]); _s.Thickness = 1.5; _s.Color = Color3.fromRGB(255, 135, 206)
+end
+
+
 -- StarterGui.DTIGUI.Main.Container.Categories.FreeStuff.KATSEYECode
 G2L["166"] = Instance.new("TextButton", G2L["123"]);
 G2L["166"]["TextWrapped"] = true;
@@ -7048,7 +7069,7 @@ local script = G2L["df"];
 				return palette.c[math.random(#palette.c)]
 			end
 
-			-- Step 3: Load registry + player replica (for owned items)
+			-- Step 3: Load registry + player replica
 			local registry
 			pcall(function() registry = require(RS.Content.Item.Registry) end)
 			local replica
@@ -7058,63 +7079,77 @@ local script = G2L["df"];
 				if dc then pcall(function() replica = dc:WaitForMyReplica() end) end
 			end
 
-			-- Types that are never equippable as clothing
-			local skipType = {
-				Makeup=true, AnimPack=true, WalkPack=true, PosePack=true,
-				IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true,
-			}
-
-			-- Parse one inventory entry into byType map
-			local byType = {}
-			local function regItem(name, hintType)
-				if not name or name == "" then return end
-				local t = hintType
-				if not t and registry then
-					pcall(function()
-						local inf = registry:Get(name)
-						if inf and inf.Type then t = inf.Type end
-					end)
-				end
-				t = t or "Unknown"
-				if skipType[t] then return end
-				if not byType[t] then byType[t] = {} end
-				table.insert(byType[t], name)
-			end
-
-			-- Build byType: primary from owned inventory, fallback from registry
-			if replica and replica.Data and replica.Data.Inventory then
-				for k, v in pairs(replica.Data.Inventory) do
-					if type(v) == "table" then
-						regItem(v.Name or v.name or (type(k)=="string" and k), v.Type or v.type)
-					elseif type(v) == "string" then
-						regItem(v, nil)
-					elseif type(k) == "string" then
-						regItem(k, nil)
-					end
-				end
-			elseif registry then
-				for _, inf in pairs(registry:GetAll()) do
-					if typeof(inf)=="table" and inf.Name and inf.Type then
-						local m = inf.Metadata or {}
-						if (m.Price or 0)==0 and (m.Currency or "Cash")=="Cash"
-							and not m.Gamepass and not m.GamepassId and not m.ToyCode then
-							regItem(inf.Name, inf.Type)
-						end
-					end
-				end
-			else
-				randomBtn.Text = "[!] No item data"
+			if not registry then
+				randomBtn.Text = "[!] Registry unavailable"
 				task.wait(2)
 				randomBtn.Text = "Random Outfit"
 				randomBtn.Active = true
 				return
 			end
 
-			-- Equip helper: fire equip + palette color on all 4 slots
-			local usedItems = {}  -- prevent same item being picked for two slots
+			-- Types to always skip (not wearable clothing)
+			local skipType = {
+				Makeup=true, AnimPack=true, WalkPack=true, PosePack=true,
+				IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true,
+			}
+
+			-- Step 4: Build byType from the REGISTRY (source of truth for types)
+			-- If player has a replica, only include items they own OR that are free.
+			-- This avoids the registry:Get(inventoryName) lookup mismatch problem.
+			local byType = {}
+			local buyNeeded = {}  -- items that need BuyItem before equip
+
+			-- Build owned-name set from inventory for fast lookup
+			local ownedSet = {}
+			if replica and replica.Data and replica.Data.Inventory then
+				for k, v in pairs(replica.Data.Inventory) do
+					local nm
+					if type(v) == "table" then
+						nm = v.Name or v.name or (type(k)=="string" and k)
+					elseif type(v) == "string" then
+						nm = v
+					elseif type(k) == "string" then
+						nm = k
+					end
+					if nm then ownedSet[nm] = true end
+				end
+			end
+			local hasInventory = next(ownedSet) ~= nil
+			print("[DTI Outfit] Owned items in inventory: " .. tostring(next(ownedSet) and "yes" or "no/empty"))
+
+			-- Iterate registry for all items
+			local buy = RS:WaitForChild("RemoteFunctions"):WaitForChild("BuyItem")
+			for _, inf in pairs(registry:GetAll()) do
+				if typeof(inf) == "table" and inf.Name and inf.Type then
+					if skipType[inf.Type] then continue end
+					local m = inf.Metadata or {}
+					local isFree = (m.Price or 0) == 0 and (m.Currency or "Cash") == "Cash"
+						and not m.Gamepass and not m.GamepassId and not m.GamepassRequired and not m.ToyCode
+					local isOwned = ownedSet[inf.Name]
+					-- Include if owned OR if free (and either no inventory data, or inventory is source of truth)
+					if isOwned or (isFree and not hasInventory) or (isFree and not isOwned) then
+						if not byType[inf.Type] then byType[inf.Type] = {} end
+						table.insert(byType[inf.Type], inf.Name)
+						if not isOwned then buyNeeded[inf.Name] = true end
+					end
+				end
+			end
+
+			-- Debug: print all found types
+			print("[DTI Outfit] Found types:")
+			for t, items in pairs(byType) do
+				print("  " .. tostring(t) .. ": " .. #items)
+			end
+
+			-- Equip helper: buy (if needed) + equip + palette color
+			local usedItems = {}
 			local function doEquip(name)
 				if usedItems[name] then return end
 				usedItems[name] = true
+				if buyNeeded[name] then
+					pcall(function() buy:InvokeServer(name) end)
+					task.wait(0.05)
+				end
 				RE.EquipItem:FireServer(name)
 				task.wait(0.08)
 				for s = 1, 4 do RE.ColorAccessory:FireServer(name, tostring(s), pickColor()) end
@@ -7296,38 +7331,72 @@ task.spawn(C_124);
 local function C_125()
 local script = G2L["125"];
 	local passNames = {
-		["CUSTOMPASS"] = "Custom Makeup",
-		["RUNFASTPASS"] = "Run Faster",
-		["MATERIALSPASS"] = "Materials +"
+		["CUSTOMPASS"]   = "Custom Makeup",
+		["RUNFASTPASS"]  = "Run Faster",
+		["MATERIALSPASS"]= "Materials +"
 	}
 	local passes
-	local success = pcall(function()
+	pcall(function()
 		passes = require(game:GetService("ReplicatedStorage").Content.Marketplace.Gamepass.Registry)
 	end)
 	local dataC
-	local success = pcall(function()
+	pcall(function()
 		dataC = require(game:GetService("ReplicatedStorage").Client.Controllers.DataController)
 	end)
 	local notifCont
-	local success = pcall(function()
+	pcall(function()
 		notifCont = require(game:GetService("ReplicatedStorage").Client.Controllers.NotificationController)
 	end)
-	
-	if not passes and dataC and notifCont then return end
-	
+
+	if not passes or not dataC or not notifCont then return end
+
+	-- Individual pass buttons (CUSTOMPASS / RUNFASTPASS / MATERIALSPASS)
 	for i, btn in script.Parent:GetChildren() do
 		if btn:IsA("TextButton") then
 			local passName = passNames[btn.Name]
 			if passName then
 				local passInfo = passes:Get(passName)
-				btn.MouseButton1Up:Connect(function()
-					local replica = dataC:GetMyReplica()
-					table.insert(replica.Data.OwnedPasses, passInfo.GamepassId)
-					
-					notifCont:Notify("Successfully Unlocked "..btn.Text)
-				end)
+				if passInfo then
+					btn.MouseButton1Up:Connect(function()
+						local replica = dataC:GetMyReplica()
+						table.insert(replica.Data.OwnedPasses, passInfo.GamepassId)
+						notifCont:Notify("Successfully Unlocked "..btn.Text)
+					end)
+				end
 			end
 		end
+	end
+
+	-- ALLPASSES button: iterate every pass in registry and unlock it
+	local allBtn = script.Parent:FindFirstChild("ALLPASSES")
+	if allBtn then
+		allBtn.MouseButton1Up:Connect(function()
+			if allBtn.Active == false then return end
+			allBtn.Active = false
+			allBtn.Text = "Unlocking..."
+			local replica = dataC:GetMyReplica()
+			local count = 0
+			local allPasses = {}
+			pcall(function() allPasses = passes:GetAll() end)
+			for _, passInfo in pairs(allPasses) do
+				if typeof(passInfo) == "table" and passInfo.GamepassId then
+					local alreadyOwned = false
+					for _, owned in pairs(replica.Data.OwnedPasses) do
+						if owned == passInfo.GamepassId then alreadyOwned = true; break end
+					end
+					if not alreadyOwned then
+						table.insert(replica.Data.OwnedPasses, passInfo.GamepassId)
+						count = count + 1
+					end
+				end
+			end
+			local msg = "Unlocked "..tostring(count).." gamepass(es)"
+			notifCont:Notify(msg)
+			allBtn.Text = msg
+			task.wait(2)
+			allBtn.Text = "Unlock All Gamepasses"
+			allBtn.Active = true
+		end)
 	end
 end;
 task.spawn(C_125);
