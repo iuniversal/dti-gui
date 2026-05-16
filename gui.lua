@@ -7423,33 +7423,98 @@ task.spawn(C_151);
 -- StarterGui.DTIGUI.Main.Container.Categories.FreeStuff.GETALL.LocalScript
 local function C_16d()
 local script = G2L["16d"];
-	local registry
-	local success = pcall(function()
-		registry = require(game.ReplicatedStorage.Content.Item.Registry)
+	local btn = script.Parent
+	local busy = false
+	local notifCont
+	local defaultText = "Unlock DLC + Other Locked Makeup"
+	pcall(function()
+		notifCont = require(game:GetService("ReplicatedStorage").Client.Controllers.NotificationController)
 	end)
-	local item
-	local backup = loadstring(game:HttpGet("https://raw.githubusercontent.com/iuniversal/dti-gui/refs/heads/main/storage/makeup"))()
-	if success then
-		item = registry:GetAll()
-	else
-		item = backup
-	end
-	
-	for _, info in pairs(item) do
-		if typeof(info) == "table" then
-			if info.Type == "MakeupPack" then
-				if info.Metadata.ToyCode == true then
-					game.ReplicatedStorage.RemoteFunctions.BuyItem:InvokeServer(info.Name)
-				else
-					if info.Metadata.Price == 0 then
-						game.ReplicatedStorage.RemoteFunctions.BuyItem:InvokeServer(info.Name)
+
+	local function runUnlock()
+		if busy then return end
+		busy = true
+		btn.Active = false
+		print("[DTI GUI] GETALL unlock clicked")
+		btn.Text = "Unlocking..."
+
+		local registry
+		local hasRegistry = pcall(function()
+			registry = require(game.ReplicatedStorage.Content.Item.Registry)
+		end)
+
+		local items = nil
+		if hasRegistry and registry then
+			items = registry:GetAll()
+		else
+			pcall(function()
+				items = loadstring(game:HttpGet("https://raw.githubusercontent.com/iuniversal/dti-gui/refs/heads/main/storage/makeup"))()
+			end)
+		end
+
+		if not items then
+			btn.Text = "Failed (no item data)"
+			task.wait(2)
+			btn.Text = defaultText
+			btn.Active = true
+			busy = false
+			return
+		end
+
+		local buy = game.ReplicatedStorage:WaitForChild("RemoteFunctions"):WaitForChild("BuyItem")
+		local unlocked = 0
+		local failed = 0
+
+		for _, info in pairs(items) do
+			local toBuy = nil
+			if typeof(info) == "table" then
+				if info.Type == "MakeupPack" then
+					local meta = info.Metadata or {}
+					if meta.ToyCode == true or (meta.Price or 0) == 0 then
+						toBuy = info.Name
 					end
 				end
+			elseif typeof(info) == "string" then
+				toBuy = info
 			end
-		else
-			game.ReplicatedStorage.RemoteFunctions.BuyItem:InvokeServer(info)
+
+			if toBuy then
+				local ok = pcall(function()
+					buy:InvokeServer(toBuy)
+				end)
+				if ok then
+					unlocked = unlocked + 1
+				else
+					failed = failed + 1
+				end
+				task.wait(0.03)
+			end
 		end
+
+		local resultText = "Unlocked " .. tostring(unlocked) .. " packs"
+		if failed > 0 then
+			resultText = resultText .. " (" .. tostring(failed) .. " failed)"
+		end
+
+		btn.Text = resultText
+		if notifCont then
+			notifCont:Notify(resultText)
+		end
+		print("[DTI GUI] GETALL result: " .. resultText)
+
+		task.wait(2)
+		btn.Text = defaultText
+		btn.Active = true
+		busy = false
 	end
+
+	btn.Active = true
+	btn.Text = defaultText
+	if btn.Activated then
+		btn.Activated:Connect(runUnlock)
+	end
+	btn.MouseButton1Click:Connect(runUnlock)
+	btn.MouseButton1Up:Connect(runUnlock)
 end;
 task.spawn(C_16d);
 -- StarterGui.DTIGUI.Main.Container.Categories.Teleport.PlaceTeleports
