@@ -7089,15 +7089,16 @@ local script = G2L["df"];
 
 			-- Types to always skip (not wearable clothing)
 			local skipType = {
-				Makeup=true, AnimPack=true, WalkPack=true, PosePack=true,
-				IdlePack=true, Effect=true, EffectPack=true, ConsumableEffect=true,
+				Makeup=true, MakeupPack=true,
+				AnimPack=true, WalkPack=true, PosePack=true,
+				IdlePack=true, Effect=true, EffectPack=true,
+				ConsumableEffect=true, VFXPack=true,
 			}
 
 			-- Step 4: Build byType from the REGISTRY (source of truth for types)
 			-- If player has a replica, only include items they own OR that are free.
 			-- This avoids the registry:Get(inventoryName) lookup mismatch problem.
 			local byType = {}
-			local buyNeeded = {}  -- items that need BuyItem before equip
 
 			-- Build owned-name set from inventory for fast lookup
 			local ownedSet = {}
@@ -7115,22 +7116,35 @@ local script = G2L["df"];
 				end
 			end
 			local hasInventory = next(ownedSet) ~= nil
-			print("[DTI Outfit] Owned items in inventory: " .. tostring(next(ownedSet) and "yes" or "no/empty"))
+			do
+				local cnt = 0; for _ in pairs(ownedSet) do cnt = cnt + 1 end
+				print("[DTI Outfit] Inventory: " .. tostring(hasInventory) .. " (" .. cnt .. " items)")
+			end
 
-			-- Iterate registry for all items
-			local buy = RS:WaitForChild("RemoteFunctions"):WaitForChild("BuyItem")
+			-- Iterate registry: use registry as the source of type info.
+			-- ONLY include items the player actually owns (from inventory).
+			-- Fallback to strictly-free items ONLY when inventory is completely empty
+			-- (avoids VIP/BattlePass/Exclusive access errors).
 			for _, inf in pairs(registry:GetAll()) do
 				if typeof(inf) == "table" and inf.Name and inf.Type then
 					if skipType[inf.Type] then continue end
-					local m = inf.Metadata or {}
-					local isFree = (m.Price or 0) == 0 and (m.Currency or "Cash") == "Cash"
-						and not m.Gamepass and not m.GamepassId and not m.GamepassRequired and not m.ToyCode
 					local isOwned = ownedSet[inf.Name]
-					-- Include if owned OR if free (and either no inventory data, or inventory is source of truth)
-					if isOwned or (isFree and not hasInventory) or (isFree and not isOwned) then
+					local include = false
+					if isOwned then
+						-- Always include items the player owns
+						include = true
+					elseif not hasInventory then
+						-- No inventory data at all: fall back to genuinely free items
+						local m = inf.Metadata or {}
+						include = (m.Price or 0) == 0
+							and (m.Currency or "Cash") == "Cash"
+							and not m.Gamepass and not m.GamepassId
+							and not m.GamepassRequired and not m.ToyCode
+							and not m.VIP and not m.Exclusive and not m.Dev
+					end
+					if include then
 						if not byType[inf.Type] then byType[inf.Type] = {} end
 						table.insert(byType[inf.Type], inf.Name)
-						if not isOwned then buyNeeded[inf.Name] = true end
 					end
 				end
 			end
@@ -7141,15 +7155,11 @@ local script = G2L["df"];
 				print("  " .. tostring(t) .. ": " .. #items)
 			end
 
-			-- Equip helper: buy (if needed) + equip + palette color
+			-- Equip helper: equip + palette color
 			local usedItems = {}
 			local function doEquip(name)
 				if usedItems[name] then return end
 				usedItems[name] = true
-				if buyNeeded[name] then
-					pcall(function() buy:InvokeServer(name) end)
-					task.wait(0.05)
-				end
 				RE.EquipItem:FireServer(name)
 				task.wait(0.08)
 				for s = 1, 4 do RE.ColorAccessory:FireServer(name, tostring(s), pickColor()) end
